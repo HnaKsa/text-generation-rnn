@@ -1,13 +1,17 @@
 import random
 import os
+import string
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM , Dense , Activation
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.optimizers import RMSprop 
 
 filepath = r"D:\text-generation-rnn\Text generation dataset.txt"
-text = open(filepath , 'rb').read().decode(encoding='utf-8').lower()
+text = open(filepath , 'rb').read().decode(encoding='utf-8')
+text = text.lower()
+text = ''.join(c for c in text if c in string.printable)
 
 characters = sorted(set(text))
 
@@ -15,7 +19,7 @@ char_to_index = dict((c , i) for i , c in enumerate(characters))
 index_to_char = dict((i , c) for i , c in enumerate(characters))
 
 seq_length = 40
-step_size = 3
+step_size = 1
 
 sentences = []
 next_characters = []
@@ -33,13 +37,18 @@ for i , sentence in enumerate(sentences) :
     y[i , char_to_index[next_characters[i]]] = 1
     
 model = Sequential()
-model.add(LSTM(128 , input_shape = (seq_length , len(characters))))
-model.add(Dense(len(characters)))
-model.add(Activation('softmax'))   
+model.add(LSTM(256 , return_sequences = True , input_shape = (seq_length , len(characters))))
+model.add(LSTM(128))
+model.add(Dense(len(characters) , activation = 'softmax'))   
 
 model.compile(loss = 'categorical_crossentropy' , optimizer = RMSprop(learning_rate = 0.01))
 
-model.fit(x , y , batch_size = 256 , epochs = 10)
+callbacks = [
+    EarlyStopping(monitor='loss', patience=3, restore_best_weights=True),
+    ModelCheckpoint('best_model.keras', save_best_only=True)
+]
+
+model.fit(x, y, batch_size=128, epochs=50, callbacks=callbacks)
 
 model.save('text_generator.keras')
 
@@ -47,6 +56,7 @@ model.save('text_generator.keras')
 
 def sample(preds , temperature= 1.0) :
     preds = np.asarray(preds).astype('float64')
+    preds = np.maximum(preds, 1e-10)
     preds = np.log(preds) / temperature
     exp_preds = np.exp(preds)
     preds = exp_preds / np.sum(exp_preds)
